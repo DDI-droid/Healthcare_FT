@@ -1,7 +1,14 @@
 # gspo_readmit/trainer_gspo.py
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from trl import GSPOConfig, GSPOTrainer   # TRL >= 0.10 provides GSPO
+# Try GSPO first, fallback to GRPO if not available
+try:
+    from trl import GSPOConfig, GSPOTrainer
+    USE_GRPO = False
+except ImportError:
+    from trl import GRPOConfig as GSPOConfig, GRPOTrainer as GSPOTrainer
+    USE_GRPO = True
+    print("GSPO not available, using GRPO instead (Group Relative Policy Optimization)")
 from .prompts import SYS, USER_TMPL
 from .metrics import compute_classification_metrics
 
