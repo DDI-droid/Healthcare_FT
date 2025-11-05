@@ -39,6 +39,7 @@ def prepare_model(cfg):
             cfg.base_model,
             trust_remote_code=cfg.trust_remote_code,
             quantization_config=quant_config,
+            torch_dtype=torch.bfloat16,  # Ensure compute dtype is bf16
             device_map="auto",
         )
     else:
@@ -46,11 +47,14 @@ def prepare_model(cfg):
         model = AutoModelForCausalLM.from_pretrained(
             cfg.base_model,
             trust_remote_code=cfg.trust_remote_code,
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
             device_map="auto",
         )
     
-    print(f"Model loaded in {model.dtype} precision")
+    print(f"Model config dtype: {model.config.torch_dtype if hasattr(model.config, 'torch_dtype') else 'default'}")
+    
+    # Prepare for kbit training first (before LoRA)
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     
     lora = LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
@@ -58,9 +62,8 @@ def prepare_model(cfg):
         bias="none", task_type="CAUSAL_LM"
     )
     
-    # Prepare for kbit training (works with both BitsAndBytes and Mxfp4 quantized models)
-    model = prepare_model_for_kbit_training(model)
     model = get_peft_model(model, lora)
+    model.print_trainable_parameters()
     return model, tok
 
 def format_prompt(text: str, tokenizer=None) -> str:
