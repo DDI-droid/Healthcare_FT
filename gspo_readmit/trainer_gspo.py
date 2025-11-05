@@ -29,22 +29,26 @@ def prepare_model(cfg):
     tok = AutoTokenizer.from_pretrained(cfg.base_model, use_fast=True, trust_remote_code=True)
     if tok.pad_token is None: tok.pad_token = tok.eos_token
     
-    # GPT-OSS-20B is pre-quantized with MXFP4 which requires Triton
-    # Since Triton is not available, the model will auto-dequantize to bf16
-    # We cannot override MXFP4 with BitsAndBytes, so we'll load in bf16 and use LoRA
-    
-    print("GPT-OSS-20B has MXFP4 quantization (requires Triton)")
-    print("Without Triton, model will dequantize to bf16 (uses more memory)")
-    print("Loading model in bf16 with LoRA for efficient training...")
-    
-    # Load model without quantization_config - let it dequantize to bf16
+    # Load model with optional 4-bit quantization
     import torch
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model,
-        trust_remote_code=cfg.trust_remote_code,
-        dtype=torch.bfloat16,  # Use dtype instead of torch_dtype
-        device_map="auto",
-    )
+    quant_config = get_bnb_4bit() if cfg.use_4bit else None
+    
+    if cfg.use_4bit:
+        print(f"Loading {cfg.base_model} with 4-bit quantization (QLoRA)")
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model,
+            trust_remote_code=cfg.trust_remote_code,
+            quantization_config=quant_config,
+            device_map="auto",
+        )
+    else:
+        print(f"Loading {cfg.base_model} in bf16")
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model,
+            trust_remote_code=cfg.trust_remote_code,
+            dtype=torch.bfloat16,
+            device_map="auto",
+        )
     
     print(f"Model loaded in {model.dtype} precision")
     
