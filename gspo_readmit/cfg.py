@@ -17,7 +17,7 @@ class TrainCfg:
     use_4bit: bool = False         # Disable 4-bit (dtype mismatch issues), use bf16 instead
     # GSPO - Optimized for speed and memory
     gspo_rollouts: int = 4         # reduced from 4 for speed (2x faster generation)
-    gspo_batch_size: int = 4       # increased from 1 for better GPU utilization
+    gspo_batch_size: int = 2       # increased from 1 for better GPU utilization
     gspo_accum: int = 4            # must be divisible by gspo_rollouts, effective batch = 2*4 = 8
     lr: float = 5e-5
     epochs: int = 5
