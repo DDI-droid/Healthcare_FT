@@ -1,5 +1,5 @@
 # gspo_readmit/trainer_gspo.py
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, TrainerCallback
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 # Try GSPO first, fallback to GRPO if not available
 try:
@@ -42,7 +42,7 @@ def prepare_model(cfg):
     model = AutoModelForCausalLM.from_pretrained(
         cfg.base_model,
         trust_remote_code=cfg.trust_remote_code,
-        torch_dtype=torch.bfloat16,  # Use bf16 explicitly
+        dtype=torch.bfloat16,  # Use dtype instead of torch_dtype
         device_map="auto",
     )
     
@@ -229,7 +229,8 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
         return reward_result
 
     # Create a callback to log metrics
-    class MetricsCallback:
+    class MetricsCallback(TrainerCallback):
+        """Callback to compute and log classification metrics."""
         def __init__(self, train_preds, train_labels, eval_preds, eval_labels):
             self.train_predictions = train_preds
             self.train_labels = train_labels
