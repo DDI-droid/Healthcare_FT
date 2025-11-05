@@ -1,5 +1,5 @@
 # gspo_readmit/trainer_gspo.py
-from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 # Try GSPO first, fallback to GRPO if not available
 try:
@@ -26,20 +26,50 @@ def get_bnb_4bit():
     )
 
 def prepare_model(cfg):
-    quant = get_bnb_4bit() if cfg.use_4bit else None
     tok = AutoTokenizer.from_pretrained(cfg.base_model, use_fast=True, trust_remote_code=True)
     if tok.pad_token is None: tok.pad_token = tok.eos_token
+    
+    # GPT-OSS models may be pre-quantized with Mxfp4Config
+    # If model is already quantized, don't pass quantization_config
+    # Otherwise, use BitsAndBytesConfig if use_4bit is True
+    quant_config = None
+    if cfg.use_4bit:
+        # Check if model config indicates it's already quantized
+        model_config = AutoConfig.from_pretrained(cfg.base_model, trust_remote_code=cfg.trust_remote_code)
+        
+        # Check if model is already quantized (Mxfp4Config, BitsAndBytes, etc.)
+        is_quantized = (
+            hasattr(model_config, 'quantization_config') and 
+            model_config.quantization_config is not None
+        )
+        
+        if is_quantized:
+            # Try to get quantization method name
+            quant_method = "unknown"
+            if isinstance(model_config.quantization_config, dict):
+                quant_method = model_config.quantization_config.get('quantization_method', 'unknown')
+            else:
+                quant_method = str(type(model_config.quantization_config).__name__)
+            print(f"Model is already quantized with {quant_method}, skipping BitsAndBytesConfig")
+        else:
+            # Model not quantized, use BitsAndBytesConfig
+            quant_config = get_bnb_4bit()
+    
+    # Load model with or without quantization config
     model = AutoModelForCausalLM.from_pretrained(
         cfg.base_model,
         trust_remote_code=cfg.trust_remote_code,
-        quantization_config=quant,
+        quantization_config=quant_config,
         device_map="auto",
     )
+    
     lora = LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
         target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
         bias="none", task_type="CAUSAL_LM"
     )
+    
+    # Prepare for kbit training (works with both BitsAndBytes and Mxfp4 quantized models)
     model = prepare_model_for_kbit_training(model)
     model = get_peft_model(model, lora)
     return model, tok
