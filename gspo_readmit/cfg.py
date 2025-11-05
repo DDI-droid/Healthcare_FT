@@ -20,12 +20,12 @@ class TrainCfg:
     gspo_batch_size: int = 5
     gspo_accum: int = 16
     lr: float = 5e-5
-    epochs: int = 2
+    epochs: int = 5
     warmup_ratio: float = 0.03
     save_dir: str = "out/gspo-gptoss-readmit"
-    data_path: str = "data/discharge.jsonl"  # path to JSONL training data file
+    data_path: str = "data/dataset.jsonl"  # path to JSONL training data file
     logging_steps: int = 10
-    eval_steps: int = 200
+    eval_steps: int = 100
     eval_split: float = 0.2  # fraction of data to use for validation (0.0 to disable)
     # WandB
     use_wandb: bool = True
