@@ -1,6 +1,8 @@
 # gspo_readmit/trainer_gspo.py
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, BitsAndBytesConfig, TrainerCallback
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import torch  # Import at top for dtype
+
 # Try GSPO first, fallback to GRPO if not available
 try:
     from trl import GSPOConfig, GSPOTrainer
@@ -22,15 +24,19 @@ def get_bnb_4bit():
         load_in_4bit=True,
         bnb_4bit_use_double_quant=True,
         bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype="bfloat16",
+        bnb_4bit_compute_dtype=torch.bfloat16,  # Use torch.bfloat16 not string
     )
 
 def prepare_model(cfg):
     tok = AutoTokenizer.from_pretrained(cfg.base_model, use_fast=True, trust_remote_code=True)
-    if tok.pad_token is None: tok.pad_token = tok.eos_token
+    if tok.pad_token is None: 
+        tok.pad_token = tok.eos_token
+    
+    # Ensure consistent tokenizer config
+    if hasattr(tok, 'pad_token_id') and tok.pad_token_id is not None:
+        print(f"Tokenizer pad_token_id: {tok.pad_token_id}")
     
     # Load model with optional 4-bit quantization
-    import torch
     quant_config = get_bnb_4bit() if cfg.use_4bit else None
     
     if cfg.use_4bit:
@@ -42,6 +48,11 @@ def prepare_model(cfg):
             torch_dtype=torch.bfloat16,  # Ensure compute dtype is bf16
             device_map="auto",
         )
+        
+        # Ensure lm_head is also in bfloat16 for consistency
+        if hasattr(model, 'lm_head'):
+            model.lm_head = model.lm_head.to(torch.bfloat16)
+            print(f"lm_head dtype: {model.lm_head.weight.dtype}")
     else:
         print(f"Loading {cfg.base_model} in bf16")
         model = AutoModelForCausalLM.from_pretrained(
@@ -64,6 +75,14 @@ def prepare_model(cfg):
     
     model = get_peft_model(model, lora)
     model.print_trainable_parameters()
+    
+    # Final dtype check
+    print(f"Final model dtype check:")
+    if hasattr(model, 'base_model'):
+        base = model.base_model.model if hasattr(model.base_model, 'model') else model.base_model
+        if hasattr(base, 'lm_head'):
+            print(f"  lm_head.weight.dtype: {base.lm_head.weight.dtype}")
+    
     return model, tok
 
 def format_prompt(text: str, tokenizer=None) -> str:
