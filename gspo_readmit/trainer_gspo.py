@@ -218,15 +218,23 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             gradient_checkpointing=True,  # Enable gradient checkpointing
         )
 
-    def rf(samples, outputs):
-        # Determine which label mapping to use: check if sample is in eval set first
-        # If eval_prompt_to_label exists, check if sample is there; otherwise use train mapping
+    def rf(inputs, prompts, completions, completion_ids):
+        """
+        Reward function wrapper for GRPOTrainer.
+        
+        Args:
+            inputs: List of dicts with "prompt" key (original inputs)
+            prompts: List of prompt strings
+            completions: List of completion strings
+            completion_ids: List of completion token IDs
+        
+        Returns:
+            List of rewards (floats)
+        """
+        # Determine labels based on prompts
         labels_for_samples = []
         is_eval = False
-        for sample in samples:
-            # GRPOTrainer passes dicts with "prompt" key, extract the string
-            prompt_str = sample["prompt"] if isinstance(sample, dict) and "prompt" in sample else sample
-            
+        for prompt_str in prompts:
             if eval_prompt_to_label is not None and prompt_str in eval_prompt_to_label:
                 labels_for_samples.append(eval_prompt_to_label[prompt_str])
                 is_eval = True
@@ -240,24 +248,22 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
                     labels_for_samples.append(prompt_to_label.get(prompt_str, 0))
         
         # Handle multiple generations per prompt (if num_generations > 1)
-        # GSPO may flatten outputs: if we have N samples and K rollouts, outputs length = N*K
-        # Match labels length to outputs length
-        if len(outputs) == len(samples):
+        # GRPOTrainer flattens: if we have N prompts and K rollouts, completions length = N*K
+        # Match labels length to completions length
+        if len(completions) == len(prompts):
             # 1-to-1 mapping (num_generations = 1)
             labels_for_outputs = labels_for_samples
-        elif len(outputs) > len(samples) and len(outputs) % len(samples) == 0:
+        elif len(completions) > len(prompts) and len(completions) % len(prompts) == 0:
             # Multiple outputs per sample - repeat labels accordingly
-            num_rollouts = len(outputs) // len(samples)
+            num_rollouts = len(completions) // len(prompts)
             labels_for_outputs = [label for label in labels_for_samples for _ in range(num_rollouts)]
         else:
-            # Fallback: repeat last label or pad (shouldn't happen in normal GSPO usage)
-            labels_for_outputs = labels_for_samples * (len(outputs) // len(samples) + 1)
-            labels_for_outputs = labels_for_outputs[:len(outputs)]
+            # Fallback: repeat last label or pad (shouldn't happen in normal GRPO usage)
+            labels_for_outputs = labels_for_samples * (len(completions) // len(prompts) + 1)
+            labels_for_outputs = labels_for_outputs[:len(completions)]
         
         # Get rewards and predictions from reward function
-        # Extract prompt strings if samples are dicts (for GRPOTrainer)
-        prompts_for_reward = [s["prompt"] if isinstance(s, dict) and "prompt" in s else s for s in samples]
-        reward_result = reward_fn(prompts=prompts_for_reward, outputs=outputs, labels=labels_for_outputs)
+        reward_result = reward_fn(prompts=prompts, outputs=completions, labels=labels_for_outputs)
         
         # Store predictions for metrics (filter out invalid predictions)
         predictions = [p for p in reward_result.get("predictions", []) if p != -1]
@@ -270,7 +276,8 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             train_predictions.extend(predictions)
             train_labels_for_metrics.extend(labels_valid)
         
-        return reward_result
+        # GRPOTrainer expects just a list of reward floats, not a dict
+        return reward_result["rewards"]
 
     # Create a callback to log metrics
     class MetricsCallback(TrainerCallback):
