@@ -134,6 +134,15 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
         eval_labels = [int(ex["label"]) for ex in eval_ds]
         eval_prompt_to_label = {prompt: label for prompt, label in zip(eval_prompts, eval_labels)}
     
+    # Format datasets for GRPOTrainer vs GSPOTrainer
+    # GRPOTrainer expects list of dicts with "prompt" key, GSPOTrainer expects list of strings
+    if USE_GRPO:
+        train_dataset_formatted = [{"prompt": p} for p in train_prompts]
+        eval_dataset_formatted = [{"prompt": p} for p in eval_prompts] if eval_prompts else None
+    else:
+        train_dataset_formatted = train_prompts
+        eval_dataset_formatted = eval_prompts
+    
     # Track predictions and labels for metrics
     train_predictions = []
     train_labels_for_metrics = []
@@ -278,12 +287,13 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
     # GRPOTrainer has different initialization parameters than GSPOTrainer
     if USE_GRPO:
         # GRPOTrainer uses processing_class and reward_funcs (plural)
+        # Also requires dataset as list of dicts with "prompt" key
         trainer = GSPOTrainer(
             model=model,
             processing_class=tok,
             args=gspo_cfg,
-            train_dataset=train_prompts,
-            eval_dataset=eval_prompts if eval_prompts else None,
+            train_dataset=train_dataset_formatted,
+            eval_dataset=eval_dataset_formatted,
             reward_funcs=[rf],  # GRPOTrainer expects a list of reward functions
         )
     else:
@@ -291,8 +301,8 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             model=model,
             tokenizer=tok,
             args=gspo_cfg,
-            train_dataset=train_prompts,
-            eval_dataset=eval_prompts if eval_prompts else None,
+            train_dataset=train_dataset_formatted,
+            eval_dataset=eval_dataset_formatted,
             reward_func=rf,
         )
     
