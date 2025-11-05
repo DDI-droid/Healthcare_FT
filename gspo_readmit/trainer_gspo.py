@@ -193,6 +193,8 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             num_generations=cfg.gspo_rollouts,
             report_to=["wandb"] if cfg.use_wandb else ["none"],
             seed=cfg.seed,
+            bf16=True,  # Enable bf16 training
+            gradient_checkpointing=True,  # Enable gradient checkpointing
         )
     else:
         # GSPOConfig supports evaluation_strategy
@@ -212,6 +214,8 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             eval_steps=cfg.eval_steps if cfg.eval_split > 0 else None,
             report_to=["wandb"] if cfg.use_wandb else ["none"],
             seed=cfg.seed,
+            bf16=True,  # Enable bf16 training
+            gradient_checkpointing=True,  # Enable gradient checkpointing
         )
 
     def rf(samples, outputs):
@@ -220,17 +224,20 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
         labels_for_samples = []
         is_eval = False
         for sample in samples:
-            if eval_prompt_to_label is not None and sample in eval_prompt_to_label:
-                labels_for_samples.append(eval_prompt_to_label[sample])
+            # GRPOTrainer passes dicts with "prompt" key, extract the string
+            prompt_str = sample["prompt"] if isinstance(sample, dict) and "prompt" in sample else sample
+            
+            if eval_prompt_to_label is not None and prompt_str in eval_prompt_to_label:
+                labels_for_samples.append(eval_prompt_to_label[prompt_str])
                 is_eval = True
-            elif sample in prompt_to_label:
-                labels_for_samples.append(prompt_to_label[sample])
+            elif prompt_str in prompt_to_label:
+                labels_for_samples.append(prompt_to_label[prompt_str])
             else:
                 # Fallback (shouldn't happen): try to find in either mapping
                 if eval_prompt_to_label is not None:
-                    labels_for_samples.append(eval_prompt_to_label.get(sample, prompt_to_label.get(sample, 0)))
+                    labels_for_samples.append(eval_prompt_to_label.get(prompt_str, prompt_to_label.get(prompt_str, 0)))
                 else:
-                    labels_for_samples.append(prompt_to_label.get(sample, 0))
+                    labels_for_samples.append(prompt_to_label.get(prompt_str, 0))
         
         # Handle multiple generations per prompt (if num_generations > 1)
         # GSPO may flatten outputs: if we have N samples and K rollouts, outputs length = N*K
@@ -248,7 +255,9 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             labels_for_outputs = labels_for_outputs[:len(outputs)]
         
         # Get rewards and predictions from reward function
-        reward_result = reward_fn(prompts=samples, outputs=outputs, labels=labels_for_outputs)
+        # Extract prompt strings if samples are dicts (for GRPOTrainer)
+        prompts_for_reward = [s["prompt"] if isinstance(s, dict) and "prompt" in s else s for s in samples]
+        reward_result = reward_fn(prompts=prompts_for_reward, outputs=outputs, labels=labels_for_outputs)
         
         # Store predictions for metrics (filter out invalid predictions)
         predictions = [p for p in reward_result.get("predictions", []) if p != -1]

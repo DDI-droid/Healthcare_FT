@@ -13,12 +13,12 @@ class TrainCfg:
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    # Quant (training) - Qwen2.5 supports 4-bit quantization with BitsAndBytes
-    use_4bit: bool = True          # Enable 4-bit for Qwen2.5 (works with BitsAndBytes)
-    # GSPO - Reduced for memory efficiency
-    gspo_rollouts: int = 2         # samples per input per step (reduced from 5)
-    gspo_batch_size: int = 1       # reduced from 5 for memory
-    gspo_accum: int = 8            # reduced from 16, effective batch = 1*8 = 8
+    # Quant (training) - Disabled 4-bit due to dtype issues, using bf16 + gradient checkpointing
+    use_4bit: bool = False         # Disable 4-bit (dtype mismatch issues), use bf16 instead
+    # GSPO - Heavily reduced for memory (bf16 without 4-bit uses more memory)
+    gspo_rollouts: int = 3         # samples per input per step
+    gspo_batch_size: int = 1       # process 1 prompt at a time
+    gspo_accum: int = 4            # reduced to 4, effective batch = 1*4 = 4
     lr: float = 5e-5
     epochs: int = 5
     warmup_ratio: float = 0.03
