@@ -1,0 +1,19 @@
+# pyproject.toml
+[project]
+name = "gspo-readmit"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.3",
+  "transformers>=4.44.0",
+  "datasets>=2.20.0",
+  "accelerate>=0.34.0",
+  "trl>=0.10.0",              # GSPO/GRPO trainers
+  "peft>=0.12.0",
+  "bitsandbytes>=0.43.3",     # QLoRA (4/8-bit) — training
+  "evaluate>=0.4.2",
+  "scikit-learn>=1.5.0",
+  "tqdm>=4.66.0",
+  "rich>=13.7.0",
+  "wandb>=0.17.0"
+]
