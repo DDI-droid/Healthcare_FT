@@ -218,7 +218,7 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             gradient_checkpointing=True,  # Enable gradient checkpointing
         )
 
-    def rf(inputs, prompts, completions, completion_ids):
+    def rf(inputs, prompts, completions, completion_ids, **kwargs):
         """
         Reward function wrapper for GRPOTrainer.
         
@@ -227,6 +227,7 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             prompts: List of prompt strings
             completions: List of completion strings
             completion_ids: List of completion token IDs
+            **kwargs: Additional arguments (e.g., trainer_state)
         
         Returns:
             List of rewards (floats)
