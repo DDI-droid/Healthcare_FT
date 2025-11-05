@@ -30,38 +30,28 @@ def prepare_model(cfg):
     if tok.pad_token is None: tok.pad_token = tok.eos_token
     
     # GPT-OSS models may be pre-quantized with Mxfp4Config
-    # If model is already quantized, don't pass quantization_config
-    # Otherwise, use BitsAndBytesConfig if use_4bit is True
-    quant_config = None
-    if cfg.use_4bit:
-        # Check if model config indicates it's already quantized
-        model_config = AutoConfig.from_pretrained(cfg.base_model, trust_remote_code=cfg.trust_remote_code)
-        
-        # Check if model is already quantized (Mxfp4Config, BitsAndBytes, etc.)
-        is_quantized = (
-            hasattr(model_config, 'quantization_config') and 
-            model_config.quantization_config is not None
-        )
-        
-        if is_quantized:
-            # Try to get quantization method name
-            quant_method = "unknown"
-            if isinstance(model_config.quantization_config, dict):
-                quant_method = model_config.quantization_config.get('quantization_method', 'unknown')
-            else:
-                quant_method = str(type(model_config.quantization_config).__name__)
-            print(f"Model is already quantized with {quant_method}, skipping BitsAndBytesConfig")
-        else:
-            # Model not quantized, use BitsAndBytesConfig
-            quant_config = get_bnb_4bit()
+    # Try loading model directly - if it fails with quantization error, retry without quantization_config
+    quant_config = get_bnb_4bit() if cfg.use_4bit else None
     
-    # Load model with or without quantization config
-    model = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model,
-        trust_remote_code=cfg.trust_remote_code,
-        quantization_config=quant_config,
-        device_map="auto",
-    )
+    try:
+        # Try loading with quantization config if requested
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model,
+            trust_remote_code=cfg.trust_remote_code,
+            quantization_config=quant_config,
+            device_map="auto",
+        )
+    except ValueError as e:
+        # If error mentions quantization config mismatch, try loading without it
+        if "quantization" in str(e).lower() and "config" in str(e).lower():
+            print(f"Model appears to be pre-quantized, loading without BitsAndBytesConfig: {str(e)[:100]}")
+            model = AutoModelForCausalLM.from_pretrained(
+                cfg.base_model,
+                trust_remote_code=cfg.trust_remote_code,
+                device_map="auto",
+            )
+        else:
+            raise
     
     lora = LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
