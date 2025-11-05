@@ -13,8 +13,8 @@ class TrainCfg:
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    # Quant (training)
-    use_4bit: bool = True          # QLoRA for training
+    # Quant (training) - Note: GPT-OSS-20B uses MXFP4 (requires Triton) and will dequantize to bf16
+    use_4bit: bool = False         # Set to False for GPT-OSS (MXFP4 incompatible with BitsAndBytes)
     # GSPO
     gspo_rollouts: int = 5         # samples per input per step
     gspo_batch_size: int = 5

@@ -29,48 +29,23 @@ def prepare_model(cfg):
     tok = AutoTokenizer.from_pretrained(cfg.base_model, use_fast=True, trust_remote_code=True)
     if tok.pad_token is None: tok.pad_token = tok.eos_token
     
-    # GPT-OSS models may be pre-quantized with Mxfp4Config which requires Triton
-    # We want to use BitsAndBytes instead, so we need to load the base model weights
-    # and apply BitsAndBytes quantization
+    # GPT-OSS-20B is pre-quantized with MXFP4 which requires Triton
+    # Since Triton is not available, the model will auto-dequantize to bf16
+    # We cannot override MXFP4 with BitsAndBytes, so we'll load in bf16 and use LoRA
     
-    quant_config = get_bnb_4bit() if cfg.use_4bit else None
+    print("GPT-OSS-20B has MXFP4 quantization (requires Triton)")
+    print("Without Triton, model will dequantize to bf16 (uses more memory)")
+    print("Loading model in bf16 with LoRA for efficient training...")
     
-    # Try loading with BitsAndBytesConfig first - it should override any pre-quantization
-    if quant_config is not None:
-        print("Loading model with BitsAndBytesConfig (4-bit quantization, avoiding MXFP4/Triton)")
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                cfg.base_model,
-                trust_remote_code=cfg.trust_remote_code,
-                quantization_config=quant_config,
-                device_map="auto",
-            )
-        except ValueError as e:
-            if "quantization" in str(e).lower() and "config" in str(e).lower():
-                # If quantization config conflict, try loading base model and then quantizing
-                print("Quantization config conflict detected, loading base model first...")
-                from transformers import AutoConfig
-                model_config = AutoConfig.from_pretrained(cfg.base_model, trust_remote_code=cfg.trust_remote_code)
-                # Create a clean config without quantization
-                if hasattr(model_config, 'quantization_config'):
-                    model_config.quantization_config = None
-                # Load with clean config and BitsAndBytes
-                model = AutoModelForCausalLM.from_pretrained(
-                    cfg.base_model,
-                    config=model_config,
-                    trust_remote_code=cfg.trust_remote_code,
-                    quantization_config=quant_config,
-                    device_map="auto",
-                )
-            else:
-                raise
-    else:
-        # No quantization requested
-        model = AutoModelForCausalLM.from_pretrained(
-            cfg.base_model,
-            trust_remote_code=cfg.trust_remote_code,
-            device_map="auto",
-        )
+    # Load model without quantization_config - let it dequantize to bf16
+    model = AutoModelForCausalLM.from_pretrained(
+        cfg.base_model,
+        trust_remote_code=cfg.trust_remote_code,
+        torch_dtype="auto",  # Will use bf16
+        device_map="auto",
+    )
+    
+    print(f"Model loaded in {model.dtype} precision")
     
     lora = LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
