@@ -1,4 +1,8 @@
 # pyproject.toml
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "gspo-readmit"
 version = "0.1.0"
@@ -18,3 +22,7 @@ dependencies = [
   "rich>=13.7.0",
   "wandb>=0.17.0"
 ]
+
+[tool.setuptools]
+# Explicitly specify only the gspo_readmit package
+packages = ["gspo_readmit"]

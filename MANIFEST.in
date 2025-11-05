@@ -1,0 +1,9 @@
+# Exclude data directory and other non-package files
+exclude data/
+exclude scripts/
+exclude out/
+exclude *.pyc
+exclude __pycache__/
+global-exclude *.py[cod]
+global-exclude .git*
+
