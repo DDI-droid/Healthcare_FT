@@ -16,7 +16,7 @@ class TrainCfg:
     # Quant (training) - Disabled 4-bit due to dtype issues, using bf16 + gradient checkpointing
     use_4bit: bool = False         # Disable 4-bit (dtype mismatch issues), use bf16 instead
     # GSPO - Heavily reduced for memory (bf16 without 4-bit uses more memory)
-    gspo_rollouts: int = 3         # samples per input per step
+    gspo_rollouts: int = 4         # samples per input per step
     gspo_batch_size: int = 1       # process 1 prompt at a time
     gspo_accum: int = 4            # reduced to 4, effective batch = 1*4 = 4
     lr: float = 5e-5
