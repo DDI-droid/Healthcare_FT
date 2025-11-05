@@ -29,29 +29,48 @@ def prepare_model(cfg):
     tok = AutoTokenizer.from_pretrained(cfg.base_model, use_fast=True, trust_remote_code=True)
     if tok.pad_token is None: tok.pad_token = tok.eos_token
     
-    # GPT-OSS models may be pre-quantized with Mxfp4Config
-    # Try loading model directly - if it fails with quantization error, retry without quantization_config
+    # GPT-OSS models may be pre-quantized with Mxfp4Config which requires Triton
+    # We want to use BitsAndBytes instead, so we need to load the base model weights
+    # and apply BitsAndBytes quantization
+    
     quant_config = get_bnb_4bit() if cfg.use_4bit else None
     
-    try:
-        # Try loading with quantization config if requested
-        model = AutoModelForCausalLM.from_pretrained(
-            cfg.base_model,
-            trust_remote_code=cfg.trust_remote_code,
-            quantization_config=quant_config,
-            device_map="auto",
-        )
-    except ValueError as e:
-        # If error mentions quantization config mismatch, try loading without it
-        if "quantization" in str(e).lower() and "config" in str(e).lower():
-            print(f"Model appears to be pre-quantized, loading without BitsAndBytesConfig: {str(e)[:100]}")
+    # Try loading with BitsAndBytesConfig first - it should override any pre-quantization
+    if quant_config is not None:
+        print("Loading model with BitsAndBytesConfig (4-bit quantization, avoiding MXFP4/Triton)")
+        try:
             model = AutoModelForCausalLM.from_pretrained(
                 cfg.base_model,
                 trust_remote_code=cfg.trust_remote_code,
+                quantization_config=quant_config,
                 device_map="auto",
             )
-        else:
-            raise
+        except ValueError as e:
+            if "quantization" in str(e).lower() and "config" in str(e).lower():
+                # If quantization config conflict, try loading base model and then quantizing
+                print("Quantization config conflict detected, loading base model first...")
+                from transformers import AutoConfig
+                model_config = AutoConfig.from_pretrained(cfg.base_model, trust_remote_code=cfg.trust_remote_code)
+                # Create a clean config without quantization
+                if hasattr(model_config, 'quantization_config'):
+                    model_config.quantization_config = None
+                # Load with clean config and BitsAndBytes
+                model = AutoModelForCausalLM.from_pretrained(
+                    cfg.base_model,
+                    config=model_config,
+                    trust_remote_code=cfg.trust_remote_code,
+                    quantization_config=quant_config,
+                    device_map="auto",
+                )
+            else:
+                raise
+    else:
+        # No quantization requested
+        model = AutoModelForCausalLM.from_pretrained(
+            cfg.base_model,
+            trust_remote_code=cfg.trust_remote_code,
+            device_map="auto",
+        )
     
     lora = LoraConfig(
         r=cfg.lora_r, lora_alpha=cfg.lora_alpha, lora_dropout=cfg.lora_dropout,
@@ -146,23 +165,44 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
     eval_predictions = []
     eval_labels_for_metrics = []
 
-    gspo_cfg = GSPOConfig(
-        output_dir=cfg.save_dir,              # training output directory
-        per_device_train_batch_size=cfg.gspo_batch_size,
-        gradient_accumulation_steps=cfg.gspo_accum,
-        learning_rate=cfg.lr,
-        num_train_epochs=cfg.epochs,
-        warmup_ratio=cfg.warmup_ratio,
-        logging_steps=cfg.logging_steps,
-        save_steps=cfg.eval_steps,
-        max_prompt_length=cfg.max_input_tokens,
-        max_completion_length=cfg.max_new_tokens,
-        num_generations=cfg.gspo_rollouts,   # samples per prompt
-        evaluation_strategy="steps" if cfg.eval_split > 0 else "no",  # evaluate on validation set
-        eval_steps=cfg.eval_steps if cfg.eval_split > 0 else None,
-        report_to=["wandb"] if cfg.use_wandb else ["none"],
-        seed=cfg.seed,
-    )
+    # GRPOConfig doesn't support evaluation_strategy, so we build config based on what's available
+    # Check if we're using GRPO (fallback) vs GSPO
+    if USE_GRPO:
+        # GRPOConfig parameters - remove evaluation_strategy and eval_steps
+        gspo_cfg = GSPOConfig(
+            output_dir=cfg.save_dir,
+            per_device_train_batch_size=cfg.gspo_batch_size,
+            gradient_accumulation_steps=cfg.gspo_accum,
+            learning_rate=cfg.lr,
+            num_train_epochs=cfg.epochs,
+            warmup_ratio=cfg.warmup_ratio,
+            logging_steps=cfg.logging_steps,
+            save_steps=cfg.eval_steps,
+            max_prompt_length=cfg.max_input_tokens,
+            max_completion_length=cfg.max_new_tokens,
+            num_generations=cfg.gspo_rollouts,
+            report_to=["wandb"] if cfg.use_wandb else ["none"],
+            seed=cfg.seed,
+        )
+    else:
+        # GSPOConfig supports evaluation_strategy
+        gspo_cfg = GSPOConfig(
+            output_dir=cfg.save_dir,
+            per_device_train_batch_size=cfg.gspo_batch_size,
+            gradient_accumulation_steps=cfg.gspo_accum,
+            learning_rate=cfg.lr,
+            num_train_epochs=cfg.epochs,
+            warmup_ratio=cfg.warmup_ratio,
+            logging_steps=cfg.logging_steps,
+            save_steps=cfg.eval_steps,
+            max_prompt_length=cfg.max_input_tokens,
+            max_completion_length=cfg.max_new_tokens,
+            num_generations=cfg.gspo_rollouts,
+            evaluation_strategy="steps" if cfg.eval_split > 0 else "no",
+            eval_steps=cfg.eval_steps if cfg.eval_split > 0 else None,
+            report_to=["wandb"] if cfg.use_wandb else ["none"],
+            seed=cfg.seed,
+        )
 
     def rf(samples, outputs):
         # Determine which label mapping to use: check if sample is in eval set first
