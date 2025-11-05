@@ -274,14 +274,16 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             
             self.step += 1
     
-    # GRPOTrainer doesn't accept tokenizer parameter (only GSPOTrainer does)
+    # GRPOTrainer has different initialization parameters than GSPOTrainer
     if USE_GRPO:
+        # GRPOTrainer uses processing_class instead of tokenizer, and reward_model instead of reward_func
         trainer = GSPOTrainer(
             model=model,
+            processing_class=tok,  # GRPOTrainer uses processing_class
             args=gspo_cfg,
             train_dataset=train_prompts,
             eval_dataset=eval_prompts if eval_prompts else None,
-            reward_func=rf,
+            reward_model=rf,  # GRPOTrainer uses reward_model
         )
     else:
         trainer = GSPOTrainer(
