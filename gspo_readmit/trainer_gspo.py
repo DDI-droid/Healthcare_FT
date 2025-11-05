@@ -38,10 +38,11 @@ def prepare_model(cfg):
     print("Loading model in bf16 with LoRA for efficient training...")
     
     # Load model without quantization_config - let it dequantize to bf16
+    import torch
     model = AutoModelForCausalLM.from_pretrained(
         cfg.base_model,
         trust_remote_code=cfg.trust_remote_code,
-        torch_dtype="auto",  # Will use bf16
+        torch_dtype=torch.bfloat16,  # Use bf16 explicitly
         device_map="auto",
     )
     
@@ -98,7 +99,6 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
                 "max_input_tokens": cfg.max_input_tokens,
                 "max_new_tokens": cfg.max_new_tokens,
             },
-            reinit=True,
         )
     
     # Split dataset into train/validation if eval_split > 0
@@ -274,14 +274,24 @@ def build_gspo_trainer(model, tok, ds, cfg, reward_fn):
             
             self.step += 1
     
-    trainer = GSPOTrainer(
-        model=model,
-        tokenizer=tok,
-        args=gspo_cfg,
-        train_dataset=train_prompts,   # prompt-only dataset
-        eval_dataset=eval_prompts if eval_prompts else None,  # validation prompts if available
-        reward_func=rf,
-    )
+    # GRPOTrainer doesn't accept tokenizer parameter (only GSPOTrainer does)
+    if USE_GRPO:
+        trainer = GSPOTrainer(
+            model=model,
+            args=gspo_cfg,
+            train_dataset=train_prompts,
+            eval_dataset=eval_prompts if eval_prompts else None,
+            reward_func=rf,
+        )
+    else:
+        trainer = GSPOTrainer(
+            model=model,
+            tokenizer=tok,
+            args=gspo_cfg,
+            train_dataset=train_prompts,
+            eval_dataset=eval_prompts if eval_prompts else None,
+            reward_func=rf,
+        )
     
     # Add metrics callback with references to the prediction lists
     metrics_callback = MetricsCallback(
