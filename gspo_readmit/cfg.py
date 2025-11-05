@@ -16,8 +16,8 @@ class TrainCfg:
     # Quant (training)
     use_4bit: bool = True          # QLoRA for training
     # GSPO
-    gspo_rollouts: int = 1         # samples per input per step
-    gspo_batch_size: int = 2
+    gspo_rollouts: int = 5         # samples per input per step
+    gspo_batch_size: int = 5
     gspo_accum: int = 16
     lr: float = 5e-5
     epochs: int = 2
